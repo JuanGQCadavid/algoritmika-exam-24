@@ -8,7 +8,10 @@ import (
 )
 
 func main() {
-	DTW([]float64{0, 2, 0, 1, 0, 0}, []float64{0, 0, 0.5, 2, 0, 1, 0})
+	post, val := DTW([]float64{0, 2, 0, 1, 0, 0}, []float64{0, 0, 0.5, 2, 0, 1, 0})
+
+	log.Println(post)
+	log.Println(val)
 }
 
 func readImages() {
@@ -63,7 +66,7 @@ func DummyDistance(a, b float64) float64 {
 	return math.Abs(a - b)
 }
 
-func DTW(vecA, vecB []float64) []float64 {
+func DTW(vecA, vecB []float64) ([][]int, []float64) {
 	dtw := make([][]float64, len(vecA)+1)
 
 	for i := range len(vecA) + 1 {
@@ -92,7 +95,37 @@ func DTW(vecA, vecB []float64) []float64 {
 		log.Println(dtw[len(dtw)-i-1])
 	}
 
-	// positions := make([]int)
-	// pathValues := make([]float64, len(vecB))
-	return nil
+	positions := make([][]int, 0)
+	pathValues := make([]float64, 0)
+
+	i, j := len(dtw)-1, len(dtw[0])-1
+
+	for {
+		if i+j == 0 {
+			break
+		}
+
+		positions = append(positions, []int{i, j})
+		pathValues = append(pathValues, dtw[i][j])
+
+		var (
+			insertion = dtw[i-1][j]
+			deletion  = dtw[i][j-1]
+			match     = dtw[i-1][j-1]
+		)
+
+		smallest := insertion
+		newI, newJ := i-1, j
+		if deletion < smallest {
+			smallest = deletion
+			newI, newJ = i, j-1
+		}
+		if match < smallest {
+			newI, newJ = i-1, j-1
+		}
+
+		i, j = newI, newJ
+	}
+
+	return positions, pathValues
 }
