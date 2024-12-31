@@ -1,131 +1,112 @@
 package main
 
 import (
+	"exam/task1/internal/mathstuff"
 	"exam/task1/internal/transformers"
-	"image/color"
+	"image"
 	"log"
-	"math"
+	"os"
+
+	"image/color"
+	"image/draw"
+	"image/png"
+
+	"github.com/nfnt/resize"
+)
+
+const (
+	resultsFile = "data.txt"
 )
 
 func main() {
-	post, val := DTW([]float64{0, 2, 0, 1, 0, 0}, []float64{0, 0, 0.5, 2, 0, 1, 0})
-
-	log.Println(post)
-	log.Println(val)
-}
-
-func readImages() {
 	imgs := transformers.WalkThrough("./imgs/A")
-	// for _, img := range imgs {
-	// 	log.Println(img.Bounds())
-	// 	point0 := img.At(0, 0)
-	// 	log.Println(point0.RGBA())
+
+	//256
+	//128
+	var reshapeSize uint = 64
+	a, b := resize.Resize(reshapeSize, 0, imgs[0], resize.Lanczos3), resize.Resize(reshapeSize, 0, imgs[1], resize.Lanczos3)
+
+	if err := saveImageToPNG("a.png", a); err != nil {
+		panic(err)
+	}
+	if err := saveImageToPNG("b.png", b); err != nil {
+		panic(err)
+	}
+
+	flatA, flatB := mathstuff.FlatImage(a), mathstuff.FlatImage(b)
+	log.Println(len(flatA), flatA[0])
+	log.Println(len(flatB), flatB[0])
+
+	// Write data to file
+	post, val, insertOps, deleteOps, matchOps := mathstuff.DTW(flatA, flatB)
+	// if err := utls.WriteDataToFile(resultsFile, post, val); err != nil {
+	// 	fmt.Println("Error writing to file:", err)
+	// 	return
 	// }
-	log.Println(Cosine(imgs[0].At(0, 0), imgs[1].At(0, 0)))
+
+	// Read data back from file
+	// post, val, err := utls.ReadDataFromFile(resultsFile)
+	// if err != nil {
+	// 	fmt.Println("Error reading from file:", err)
+	// 	return
+	// }
+
+	log.Println(len(post), len(val), len(insertOps), len(deleteOps), len(matchOps))
+
+	// min := math.Inf(0)
+	// max := 0.0
+	// avg := 0.0
+
+	// for _, v := range val {
+	// 	min = math.Min(v, min)
+	// 	max = math.Max(v, max)
+	// 	avg += v
+	// }
+
+	// avg = avg / float64(len(val))
+
+	// log.Println(min, max, avg)
+	// originalShape := a.Bounds()
+
+	bounds := a.Bounds()
+	ca := image.NewRGBA(bounds)
+	cb := image.NewRGBA(bounds)
+
+	draw.Draw(ca, bounds, a, bounds.Min, draw.Src)
+	draw.Draw(cb, bounds, b, bounds.Min, draw.Src)
+
+	log.Println(a.Bounds(), b.Bounds())
+
+	for _, v := range deleteOps {
+		i := int(v[0] / a.Bounds().Dx())
+		j := int(v[0] % a.Bounds().Dx())
+
+		ca.Set(i, j, color.RGBA{255, 0, 0, 255})
+		cb.Set(i, j, color.RGBA{255, 0, 0, 255})
+
+	}
+
+	if err := saveImageToPNG("ca.png", ca); err != nil {
+		panic(err)
+	}
+	if err := saveImageToPNG("cb.png", cb); err != nil {
+		panic(err)
+	}
+	// if err := saveImageToPNG("b.png", b); err != nil {
+	// 	panic(err)
+	// }
+
 }
 
-// https://en.wikipedia.org/wiki/Cosine_similarity
-func Cosine(pixelA, pixelB color.Color) float64 {
-	log.Println(pixelA, pixelB)
+func readAndSave() {
 
-	aR, aG, aB, aA := pixelA.RGBA()
-	vect1 := []uint32{
-		aR, aG, aB, aA,
-	}
-
-	bR, bG, bB, bA := pixelB.RGBA()
-	vect2 := []uint32{
-		bR, bG, bB, bA,
-	}
-
-	// dot-product two vectors
-	// to calculate A·B
-	dotProduct := 0.0
-	for i := range vect1 {
-		dotProduct += float64(vect1[i]) * float64(vect2[i])
-	}
-
-	// to calculate |A|*|B|
-	sum1 := 0.0
-	for _, v := range vect1 {
-		sum1 += math.Pow(float64(v), 2)
-	}
-	sum2 := 0.0
-	for _, v := range vect2 {
-		sum2 += math.Pow(float64(v), 2)
-	}
-
-	magnitude := math.Sqrt(sum1) * math.Sqrt(sum2)
-	if magnitude == 0 {
-		return 0.0
-	}
-	return float64(dotProduct) / float64(magnitude)
 }
 
-func DummyDistance(a, b float64) float64 {
-	return math.Abs(a - b)
-}
-
-func DTW(vecA, vecB []float64) ([][]int, []float64) {
-	dtw := make([][]float64, len(vecA)+1)
-
-	for i := range len(vecA) + 1 {
-		dtw[i] = make([]float64, len(vecB)+1)
-		dtw[i][0] = math.Inf(0)
+func saveImageToPNG(filename string, img image.Image) error {
+	file, err := os.Create(filename)
+	if err != nil {
+		return err
 	}
-
-	for j := range len(vecB) + 1 {
-		dtw[0][j] = math.Inf(0)
-	}
-
-	dtw[0][0] = 0
-
-	for i := 1; i <= len(vecA); i++ {
-		for j := 1; j <= len(vecB); j++ {
-			var (
-				insertion = dtw[i-1][j]
-				deletion  = dtw[i][j-1]
-				match     = dtw[i-1][j-1]
-			)
-			dtw[i][j] = DummyDistance(vecA[i-1], vecB[j-1]) + math.Min(math.Min(insertion, deletion), match)
-		}
-	}
-
-	for i := range len(dtw) {
-		log.Println(dtw[len(dtw)-i-1])
-	}
-
-	positions := make([][]int, 0)
-	pathValues := make([]float64, 0)
-
-	i, j := len(dtw)-1, len(dtw[0])-1
-
-	for {
-		if i+j == 0 {
-			break
-		}
-
-		positions = append(positions, []int{i, j})
-		pathValues = append(pathValues, dtw[i][j])
-
-		var (
-			insertion = dtw[i-1][j]
-			deletion  = dtw[i][j-1]
-			match     = dtw[i-1][j-1]
-		)
-
-		smallest := insertion
-		newI, newJ := i-1, j
-		if deletion < smallest {
-			smallest = deletion
-			newI, newJ = i, j-1
-		}
-		if match < smallest {
-			newI, newJ = i-1, j-1
-		}
-
-		i, j = newI, newJ
-	}
-
-	return positions, pathValues
+	defer file.Close()
+	return png.Encode(file, img)
 }
