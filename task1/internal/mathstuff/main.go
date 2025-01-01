@@ -3,7 +3,6 @@ package mathstuff
 import (
 	"image"
 	"image/color"
-	"log"
 	"math"
 )
 
@@ -74,7 +73,7 @@ func DTW(vecA, vecB []color.Color) ([][]int, []float64, [][]int, [][]int, [][]in
 
 	dtw[0][0] = 0
 
-	log.Println("Matrix created")
+	// log.Println("Matrix created")
 
 	for i := 1; i <= len(vecA); i++ {
 		for j := 1; j <= len(vecB); j++ {
@@ -87,7 +86,7 @@ func DTW(vecA, vecB []color.Color) ([][]int, []float64, [][]int, [][]int, [][]in
 		}
 	}
 
-	log.Println("Matrix filled")
+	// log.Println("Matrix filled")
 	// for i := range len(dtw) {
 	// 	log.Println(dtw[len(dtw)-i-1])
 	// }
@@ -139,7 +138,7 @@ func DTW(vecA, vecB []color.Color) ([][]int, []float64, [][]int, [][]int, [][]in
 		}
 	}
 
-	log.Println("Positions and values done")
+	// log.Println("Positions and values done")
 
 	return positions, pathValues, insertOps, deleteOps, matchOps
 }
