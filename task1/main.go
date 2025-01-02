@@ -20,25 +20,38 @@ import (
 	"github.com/nfnt/resize"
 )
 
-const (
-	resultsFile = "data.txt"
-)
-
 type DTWDistance struct {
-	TargetX  int
-	TargetY  int
-	DestX    int
-	DestY    int
+	TargetX int
+	TargetY int
+
+	TargetXX int
+	TargetYY int
+
+	DestX int
+	DestY int
+
+	DestXX int
+	DestYY int
+
 	Distance float64
 	Target   *image.Image
 	Dest     *image.Image
+	DwtType  DTWType
 }
+
+type DTWType uint16
+
+const (
+	PerLine DTWType = iota
+	PerBox
+)
 
 type DWTPerLine struct {
 	Target        *image.Image
 	Dest          *image.Image
 	TotalDistance float64
 	Distances     []DTWDistance
+	DwtType       DTWType
 }
 
 type MetaData struct {
@@ -79,6 +92,7 @@ func GetDTWPerLine(target, dest image.Image, reshapeSize uint) *DWTPerLine {
 		Target:    &a,
 		Dest:      &b,
 		Distances: make([]DTWDistance, a.Bounds().Dy()),
+		DwtType:   PerLine,
 	}
 
 	report := int(a.Bounds().Dy() / 10)
@@ -109,11 +123,106 @@ func GetDTWPerLine(target, dest image.Image, reshapeSize uint) *DWTPerLine {
 			Distance: minValue,
 			Target:   &a,
 			Dest:     &b,
+			DwtType:  PerLine,
 		}
 
 		response.TotalDistance += minValue
 	}
 
+	return &response
+}
+
+func extractVectorBox(img image.Image, startX, startY, endX, endY int) []color.Color {
+	result := make([]color.Color, (endX-startX)*(endY-startY))
+	counter := 0
+	for x := startX; x < endX; x++ {
+		for y := startY; y < endY; y++ {
+			result[counter] = img.At(x, y)
+			counter += 1
+		}
+	}
+
+	return result
+}
+
+func generateBoxLimits(a image.Image, size int) [][]int {
+	result := make([][]int, 0)
+	for y := 0; y < a.Bounds().Dy(); y += size {
+		for x := 0; x < a.Bounds().Dx(); x += size {
+			var (
+				xLimit = x + size
+				yLimit = y + size
+			)
+
+			if xLimit > a.Bounds().Dx() {
+				xLimit = a.Bounds().Dx() - 1
+			}
+			if yLimit > a.Bounds().Dy() {
+				yLimit = a.Bounds().Dy() - 1
+			}
+
+			result = append(result, []int{x, y, xLimit, yLimit})
+		}
+	}
+
+	return result
+}
+
+func GetDTWPerBox(target, dest image.Image, reshapeSize uint, size int) *DWTPerLine {
+	a, b := resize.Resize(reshapeSize, 0, target, resize.Lanczos3), resize.Resize(reshapeSize, 0, dest, resize.Lanczos3)
+
+	response := DWTPerLine{
+		Target:  &a,
+		Dest:    &b,
+		DwtType: PerBox,
+	}
+
+	distances := make([]DTWDistance, 0)
+	boxCoordinates := generateBoxLimits(a, size)
+	report := int(len(boxCoordinates) / 10)
+	if report == 0 {
+		report = size
+	}
+	for i, box := range boxCoordinates {
+		if i%report == 0 {
+			log.Println(i, "/", len(boxCoordinates))
+		}
+		var (
+			minValue     = math.Inf(0)
+			minVectorPos = 0
+			vectorA      = extractVectorBox(a, box[0], box[1], box[2], box[3])
+		)
+
+		for j, destBox := range boxCoordinates {
+			vectorB := extractVectorBox(b, destBox[0], destBox[1], destBox[2], destBox[3])
+			_, val, _, _, _ := mathstuff.DTW(vectorA, vectorB)
+
+			if val[0] < minValue {
+				minVectorPos = j
+				minValue = val[0]
+			}
+		}
+		distances = append(distances, DTWDistance{
+			TargetX:  box[0],
+			TargetY:  box[1],
+			TargetXX: box[2],
+			TargetYY: box[3],
+
+			DestX:  boxCoordinates[minVectorPos][0],
+			DestY:  boxCoordinates[minVectorPos][1],
+			DestXX: boxCoordinates[minVectorPos][2],
+			DestYY: boxCoordinates[minVectorPos][3],
+
+			Distance: minValue,
+			Target:   &a,
+			Dest:     &b,
+			DwtType:  PerBox,
+		})
+
+		response.TotalDistance += minValue
+	}
+
+	response.Distances = distances
 	return &response
 }
 
@@ -126,7 +235,6 @@ func init() {
 }
 
 func main() {
-	tick := time.Now()
 
 	// ////////////////////
 	//
@@ -134,19 +242,35 @@ func main() {
 	//
 	// ////////////////////
 
-	dest := transformers.WalkThrough("./img/all")
-	target := transformers.WalkThrough("./img/B_target")[0]
-	var reshapeSize uint = 128 // 256 128 64
+	var (
+		tick             = time.Now()
+		dest             = transformers.WalkThrough("./img/all")
+		target           = transformers.WalkThrough("./img/A_target")[0]
+		reshapeSize uint = 256 // 256 128 64
+		boxSize          = 32  // 16
+		wg               = sync.WaitGroup{}
+		ch               = make(chan *DWTPerLine, len(dest))
+	)
 
-	wg := sync.WaitGroup{}
-	ch := make(chan *DWTPerLine, len(dest))
+	const (
+		generateDWT DTWType = PerBox
+	)
 
 	for _, d := range dest {
 		wg.Add(1)
 
 		go func(destination image.Image, reshapeSize uint) {
 			defer wg.Done()
-			ch <- GetDTWPerLine(target, destination, reshapeSize)
+
+			switch generateDWT {
+			case PerLine:
+				ch <- GetDTWPerLine(target, destination, reshapeSize)
+			case PerBox:
+				ch <- GetDTWPerBox(target, destination, reshapeSize, boxSize)
+			default:
+				ch <- GetDTWPerLine(target, destination, reshapeSize)
+			}
+
 		}(d, reshapeSize)
 	}
 
@@ -209,47 +333,15 @@ func main() {
 	// ////////////////////
 
 	// Lines
-	topTenLines := make(map[*image.Image][]DTWDistance)
-	stringReport := "Pos; Target Row; Dest ID; Dest Row; Distance \n"
-	log.Println("Top ten lines")
-	for i, val := range resultsData[0:10] {
-		if topTenLines[val.Dest] == nil {
-			topTenLines[val.Dest] = make([]DTWDistance, 0)
-		}
-		topTenLines[val.Dest] = append(topTenLines[val.Dest], val)
-		stringReport += fmt.Sprintf(" %d; %d; %s; %d; %f \n", i, val.TargetY, resultsMetadata[val.Dest].Name, val.DestY, val.Distance)
-	}
-	log.Println(stringReport)
+	stringReport := ""
 
-	targetImage := *resultsData[0].Target
-	bounds := targetImage.Bounds()
-
-	ca := image.NewRGBA(bounds)
-	draw.Draw(ca, bounds, targetImage, bounds.Min, draw.Src)
-	counter = 0
-
-	for i, val := range topTenLines {
-		destImage := *i
-		cb := image.NewRGBA(bounds)
-
-		draw.Draw(cb, bounds, destImage, bounds.Min, draw.Src)
-
-		for i := range len(val) {
-			line := resultsData[i]
-			for x := 0; x < targetImage.Bounds().Dx(); x++ {
-				ca.Set(x, line.TargetY, colors[counter])
-				cb.Set(x, line.DestY, colors[counter])
-			}
-			counter += 1
-		}
-
-		if err := saveImageToPNG(fmt.Sprintf("%s-lines.png", resultsMetadata[i].Name), cb); err != nil {
-			panic(err)
-		}
-	}
-
-	if err := saveImageToPNG("target-lines.png", ca); err != nil {
-		panic(err)
+	switch generateDWT {
+	case PerBox:
+		stringReport = boxReport(resultsData, resultsMetadata)
+	case PerLine:
+		stringReport = lineReport(resultsData, resultsMetadata)
+	default:
+		stringReport = lineReport(resultsData, resultsMetadata)
 	}
 
 	// Files
@@ -276,9 +368,115 @@ func main() {
 		f.WriteString("Files\n")
 		f.WriteString(topFiles)
 		f.WriteString("\n")
+	}
+}
 
+func boxReport(resultsData []DTWDistance, resultsMetadata map[*image.Image]MetaData) string {
+	topTenBoxes := make(map[*image.Image][]DTWDistance)
+	stringReport := "Pos; Target (x,y) - (x,y); Dest ID; Dest (x,y) - (x,y); Distance \n"
+	log.Println("Top ten boxes")
+	for i, val := range resultsData[0:10] {
+		if topTenBoxes[val.Dest] == nil {
+			topTenBoxes[val.Dest] = make([]DTWDistance, 0)
+		}
+		topTenBoxes[val.Dest] = append(topTenBoxes[val.Dest], val)
+		stringReport += fmt.Sprintf(
+			" %d; (%d,%d) - (%d,%d); %s; (%d,%d) - (%d,%d); %f \n",
+			i,
+			val.TargetX, val.TargetY, val.TargetXX, val.TargetYY,
+			resultsMetadata[val.Dest].Name,
+			val.DestX, val.DestY, val.DestXX, val.DestYY,
+			val.Distance)
+	}
+	log.Println(stringReport)
+
+	targetImage := *resultsData[0].Target
+	bounds := targetImage.Bounds()
+
+	ca := image.NewRGBA(bounds)
+	draw.Draw(ca, bounds, targetImage, bounds.Min, draw.Src)
+	counter := 0
+
+	for i, val := range topTenBoxes {
+		destImage := *i
+		cb := image.NewRGBA(bounds)
+
+		draw.Draw(cb, bounds, destImage, bounds.Min, draw.Src)
+
+		for _, box := range val {
+
+			for x := box.TargetX; x < box.TargetXX; x++ {
+				for y := box.TargetY; y < box.TargetYY; y++ {
+					ca.Set(x, y, colors[counter])
+				}
+			}
+
+			for x := box.DestX; x < box.DestXX; x++ {
+				for y := box.DestY; y < box.DestYY; y++ {
+					cb.Set(x, y, colors[counter])
+				}
+			}
+
+			counter += 1
+		}
+
+		if err := saveImageToPNG(fmt.Sprintf("%s-box.png", resultsMetadata[i].Name), cb); err != nil {
+			panic(err)
+		}
 	}
 
+	if err := saveImageToPNG("target-box.png", ca); err != nil {
+		panic(err)
+	}
+
+	return stringReport
+}
+
+func lineReport(resultsData []DTWDistance, resultsMetadata map[*image.Image]MetaData) string {
+	topTenLines := make(map[*image.Image][]DTWDistance)
+	stringReport := "Pos; Target Row; Dest ID; Dest Row; Distance \n"
+	log.Println("Top ten lines")
+	for i, val := range resultsData[0:10] {
+		if topTenLines[val.Dest] == nil {
+			topTenLines[val.Dest] = make([]DTWDistance, 0)
+		}
+		topTenLines[val.Dest] = append(topTenLines[val.Dest], val)
+		stringReport += fmt.Sprintf(" %d; %d; %s; %d; %f \n", i, val.TargetY, resultsMetadata[val.Dest].Name, val.DestY, val.Distance)
+	}
+	log.Println(stringReport)
+
+	targetImage := *resultsData[0].Target
+	bounds := targetImage.Bounds()
+
+	ca := image.NewRGBA(bounds)
+	draw.Draw(ca, bounds, targetImage, bounds.Min, draw.Src)
+	counter := 0
+
+	for i, val := range topTenLines {
+		destImage := *i
+		cb := image.NewRGBA(bounds)
+
+		draw.Draw(cb, bounds, destImage, bounds.Min, draw.Src)
+
+		for i := range len(val) {
+			line := resultsData[i]
+			for x := 0; x < targetImage.Bounds().Dx(); x++ {
+				ca.Set(x, line.TargetY, colors[counter])
+				cb.Set(x, line.DestY, colors[counter])
+			}
+			counter += 1
+		}
+
+		if err := saveImageToPNG(fmt.Sprintf("%s-lines.png", resultsMetadata[i].Name), cb); err != nil {
+			panic(err)
+		}
+	}
+
+	if err := saveImageToPNG("target-lines.png", ca); err != nil {
+		panic(err)
+	}
+
+	return stringReport
 }
 
 func saveImageToPNG(filename string, img image.Image) error {
