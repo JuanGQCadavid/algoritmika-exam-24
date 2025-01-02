@@ -9,7 +9,9 @@ import (
 	"math"
 	"os"
 	"sort"
+	"strings"
 	"sync"
+	"time"
 
 	"image/color"
 	"image/draw"
@@ -115,7 +117,17 @@ func GetDTWPerLine(target, dest image.Image, reshapeSize uint) *DWTPerLine {
 	return &response
 }
 
+var (
+	folderName = strings.ReplaceAll(time.Now().Format(time.DateOnly)+"-"+time.Now().Format(time.Kitchen), ":", "_")
+)
+
+func init() {
+	os.MkdirAll(folderName, 0755)
+}
+
 func main() {
+	tick := time.Now()
+
 	// ////////////////////
 	//
 	// INIT
@@ -123,7 +135,7 @@ func main() {
 	// ////////////////////
 
 	dest := transformers.WalkThrough("./img/all")
-	target := transformers.WalkThrough("./img/A_target")[0]
+	target := transformers.WalkThrough("./img/B_target")[0]
 	var reshapeSize uint = 128 // 256 128 64
 
 	wg := sync.WaitGroup{}
@@ -254,10 +266,23 @@ func main() {
 	}
 	log.Println(topFiles)
 
+	if f, err := os.Create(fmt.Sprintf("./%s/results.txt", folderName)); err != nil {
+		log.Fatalln(err.Error())
+	} else {
+		f.WriteString(fmt.Sprintf("Resolution: %d, time taken: %s \n", reshapeSize, time.Since(tick)))
+		f.WriteString("Lines\n")
+		f.WriteString(stringReport)
+		f.WriteString("\n")
+		f.WriteString("Files\n")
+		f.WriteString(topFiles)
+		f.WriteString("\n")
+
+	}
+
 }
 
 func saveImageToPNG(filename string, img image.Image) error {
-	file, err := os.Create(filename)
+	file, err := os.Create(fmt.Sprintf("./%s/%s", folderName, filename))
 	if err != nil {
 		return err
 	}

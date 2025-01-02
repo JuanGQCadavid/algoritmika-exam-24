@@ -56,7 +56,14 @@ func Cosine(pixelA, pixelB color.Color) float64 {
 	if magnitude == 0 {
 		return 0.0
 	}
-	return float64(dotProduct) / float64(magnitude)
+
+	distance := float64(dotProduct) / float64(magnitude)
+
+	if distance < 0 {
+		return 1 + (distance * -1)
+	}
+
+	return 1 - distance
 }
 
 func DTW(vecA, vecB []color.Color) ([][]int, []float64, [][]int, [][]int, [][]int) {

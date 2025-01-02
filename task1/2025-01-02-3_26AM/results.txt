@@ -1,0 +1,22 @@
+Resolution: 128, time taken: 2m8.117345166s 
+Lines
+Pos; Target Row; Dest ID; Dest Row; Distance 
+ 0; 12; DEST-8; 126; 0.033238 
+ 1; 11; DEST-8; 126; 0.033394 
+ 2; 8; DEST-8; 122; 0.034143 
+ 3; 10; DEST-8; 122; 0.034162 
+ 4; 13; DEST-8; 127; 0.034526 
+ 5; 9; DEST-8; 122; 0.034691 
+ 6; 6; DEST-8; 122; 0.035010 
+ 7; 7; DEST-8; 122; 0.035092 
+ 8; 124; DEST-8; 127; 0.035226 
+ 9; 4; DEST-8; 126; 0.035816 
+
+Files
+FileName; Distance 
+0; DEST-0; 81.992348 
+1; DEST-2; 90.189367 
+2; DEST-6; 97.255375 
+3; DEST-8; 98.341078 
+4; DEST-1; 100.813031 
+
