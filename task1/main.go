@@ -141,16 +141,22 @@ func extractVectorBox(img image.Image, startX, startY, endX, endY int) []color.C
 			counter += 1
 		}
 	}
-
 	return result
 }
 
-func generateBoxLimits(a image.Image, size int) [][]int {
+func generateBoxLimits(a image.Image, size int, lines bool) [][]int {
 	result := make([][]int, 0)
+
+	x_jump := size
+
+	if lines {
+		x_jump = a.Bounds().Dx()
+	}
+
 	for y := 0; y < a.Bounds().Dy(); y += size {
-		for x := 0; x < a.Bounds().Dx(); x += size {
+		for x := 0; x < a.Bounds().Dx(); x += x_jump {
 			var (
-				xLimit = x + size
+				xLimit = x + x_jump
 				yLimit = y + size
 			)
 
@@ -168,7 +174,7 @@ func generateBoxLimits(a image.Image, size int) [][]int {
 	return result
 }
 
-func GetDTWPerBox(target, dest image.Image, reshapeSize uint, size int) *DWTPerLine {
+func GetDTWPerBox(target, dest image.Image, reshapeSize uint, size int, lines bool) *DWTPerLine {
 	a, b := resize.Resize(reshapeSize, 0, target, resize.Lanczos3), resize.Resize(reshapeSize, 0, dest, resize.Lanczos3)
 
 	response := DWTPerLine{
@@ -178,7 +184,7 @@ func GetDTWPerBox(target, dest image.Image, reshapeSize uint, size int) *DWTPerL
 	}
 
 	distances := make([]DTWDistance, 0)
-	boxCoordinates := generateBoxLimits(a, size)
+	boxCoordinates := generateBoxLimits(a, size, lines)
 	report := int(len(boxCoordinates) / 10)
 	if report == 0 {
 		report = size
@@ -196,12 +202,12 @@ func GetDTWPerBox(target, dest image.Image, reshapeSize uint, size int) *DWTPerL
 		for j, destBox := range boxCoordinates {
 			vectorB := extractVectorBox(b, destBox[0], destBox[1], destBox[2], destBox[3])
 			_, val, _, _, _ := mathstuff.DTW(vectorA, vectorB)
-
 			if val[0] < minValue {
 				minVectorPos = j
 				minValue = val[0]
 			}
 		}
+
 		distances = append(distances, DTWDistance{
 			TargetX:  box[0],
 			TargetY:  box[1],
@@ -243,18 +249,24 @@ func main() {
 	// ////////////////////
 
 	var (
-		tick             = time.Now()
-		dest             = transformers.WalkThrough("./img/all")
-		target           = transformers.WalkThrough("./img/A_target")[0]
-		reshapeSize uint = 256 // 256 128 64
-		boxSize          = 32  // 16
-		wg               = sync.WaitGroup{}
-		ch               = make(chan *DWTPerLine, len(dest))
+		tick   = time.Now()
+		dest   = transformers.WalkThrough("./img/all")
+		target = transformers.WalkThrough("./img/A_target")[0]
+
+		reshapeSize   uint = 128  // 256 128 64
+		boxSize            = 4    // 32 16 4
+		multipleLines      = true // If set true, the lines will have the size of the BoxSize
+
+		wg = sync.WaitGroup{}
+		ch = make(chan *DWTPerLine, len(dest))
 	)
 
 	const (
 		generateDWT DTWType = PerBox
 	)
+
+	// GetDTWPerBox(target, dest[0], reshapeSize, boxSize, multipleLines)
+	// return
 
 	for _, d := range dest {
 		wg.Add(1)
@@ -266,7 +278,7 @@ func main() {
 			case PerLine:
 				ch <- GetDTWPerLine(target, destination, reshapeSize)
 			case PerBox:
-				ch <- GetDTWPerBox(target, destination, reshapeSize, boxSize)
+				ch <- GetDTWPerBox(target, destination, reshapeSize, boxSize, multipleLines)
 			default:
 				ch <- GetDTWPerLine(target, destination, reshapeSize)
 			}
