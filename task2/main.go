@@ -3,11 +3,14 @@ package main
 import (
 	"exam/task3/core/mathstuff"
 	"exam/task3/core/utils"
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
 	"log"
+	"math"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -87,7 +90,8 @@ func generatePopulation(initPopulationSize, colorPaletteRange, boxSize int, widt
 	for i := range popu {
 		newBorn := createOne(colorPaletteRange, boxSize, width)
 		popu[i] = PopStat{
-			Data: newBorn,
+			Data:  newBorn,
+			Score: math.Inf(0),
 		}
 	}
 	return popu
@@ -238,10 +242,6 @@ func main() {
 		initPopulation                = generatePopulation(initPopulationSize, len(colorPalette), boxSize, width)
 	)
 
-	// utils.SaveImageToPNG("origin.png", "./", targetImage)
-	// dst := DrawOverImage(targetImage, initPopulation[0], boxSize)
-	// utils.SaveImageToPNG("example.png", "./", dst)
-
 	startTime := time.Now()
 	iterationsCounter := 0
 
@@ -254,7 +254,7 @@ func main() {
 			wg            = sync.WaitGroup{}
 		)
 
-		if fatherFitness == 0 {
+		if fatherFitness == math.Inf(0) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -275,7 +275,7 @@ func main() {
 				Score: offFitness,
 			}
 		}
-		if initPopulation[parentsIndex[0]].Score == 0 {
+		if initPopulation[parentsIndex[0]].Score == math.Inf(0) {
 			initPopulation[parentsIndex[0]].Score = fatherFitness
 		}
 		iterationsCounter += 1
@@ -283,12 +283,66 @@ func main() {
 
 	log.Println("Total iterations: ", iterationsCounter)
 
-	// sort.Slice(initPopulation, func(i, j int) bool {
+	sort.Slice(initPopulation, func(i, j int) bool {
+		return initPopulation[i].Score < initPopulation[j].Score
+	})
 
-	// })
+	log.Println(initPopulation[0].Score, initPopulation[1].Score, initPopulation[2].Score)
 
-	// utils.SaveImageToPNG("test.png", "./", a)
-	// p := parallelFitnessFunction(targetImage, boxSize, initPopulation[0])
-	// println(int(p))
+	for i, data := range initPopulation[:5] {
+		dst := DrawOverImage(targetImage, data, boxSize)
+		if err := utils.SaveImageToPNG(fmt.Sprintf("TOP-%d.png", i+1), folderName, dst); err != nil {
+			log.Println("Errpr saving the last image", err.Error())
+		}
+	}
 
+	utils.SaveImageToPNG("origin.png", folderName, targetImage)
+
+	dst := DrawOverImage(targetImage, initPopulation[0], boxSize)
+	winner := overLapWinner(targetImage, dst)
+	utils.SaveImageToPNG("winner_overlapping.png", folderName, winner)
 }
+
+/*
+ * ChatGPT Code Section
+ *
+ */
+
+func blendColors(dst, src color.Color, alpha uint8) color.Color {
+	// Convert colors to RGBA
+	dr, dg, db, da := dst.RGBA()
+	sr, sg, sb, sa := src.RGBA()
+
+	// Normalize alpha to a 0-1 scale
+	alphaF := float64(alpha) / 255.0
+
+	// Perform alpha blending
+	r := uint8((1-alphaF)*float64(dr/257) + alphaF*float64(sr/257))
+	g := uint8((1-alphaF)*float64(dg/257) + alphaF*float64(sg/257))
+	b := uint8((1-alphaF)*float64(db/257) + alphaF*float64(sb/257))
+	a := uint8((1-alphaF)*float64(da/257) + alphaF*float64(sa/257))
+
+	return color.RGBA{r, g, b, a}
+}
+func overLapWinner(targetImage, winner image.Image) image.Image {
+	// Create a 16x16 RGBA image
+	img := image.NewRGBA(image.Rect(0, 0, targetImage.Bounds().Dx(), targetImage.Bounds().Dy()))
+	alpha := uint8(128) // 50% transparency
+
+	// Fill the image with a solid background color
+	bgColor := color.RGBA{255, 255, 255, 255} // White
+	for y := 0; y < targetImage.Bounds().Dy(); y++ {
+		for x := 0; x < targetImage.Bounds().Dx(); x++ {
+			img.Set(x, y, bgColor)
+			blendedColor := blendColors(targetImage.At(x, y), winner.At(x, y), alpha)
+			img.Set(x, y, blendedColor)
+		}
+	}
+
+	return img
+}
+
+/*
+ *  END ChatGPT Code Section
+ *
+ */
