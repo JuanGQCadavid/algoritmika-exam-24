@@ -1,0 +1,26 @@
+func main() {
+	var (
+		targetImage image.Image = utils.ReadImage(targetImgPath)
+	)
+	a := resize.Resize(width, width, targetImage, resize.Lanczos3)
+	utils.SaveImageToPNG("test.png", "./", a)
+	initPopulation := generatePopulation(initPopulationSize, len(colorPalette), boxSize, width)
+
+	log.Println(len(initPopulation[0]), len(initPopulation[0][0]))
+	// log.Println(initPopulation[0][0])
+
+	// fitnessFunction(targetImage, boxSize, int(width), initPopulation[0])
+	log.Print("Single: ")
+	tick := time.Now()
+	s := fitnessFunction(targetImage, boxSize, initPopulation[0])
+	println(int(s))
+	log.Println(time.Since(tick))
+
+	log.Print("Parallel: ")
+	tick = time.Now()
+	p := parallelFitnessFunction(targetImage, boxSize, initPopulation[0])
+	println(int(p))
+	log.Println(time.Since(tick))
+
+	log.Println(math.Abs(s - p))
+}
