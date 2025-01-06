@@ -21,7 +21,9 @@ import (
 )
 
 const (
-	targetImgPath = "./img/Lord.webp"
+	// targetImgPath = "./img/batman.webp"
+	targetImgPath = "./img/test2.webp"
+	// targetImgPath = "./img/Lord.webp"
 )
 
 var (
@@ -34,13 +36,13 @@ var (
 	boxSize int  = 16
 
 	// Generative params
-	initPopulationSize = int(1e4)
+	initPopulationSize = 100
 
 	// Parallel params
 	maxSubprocess = 8
 
 	// Process time
-	runningLimit time.Duration = time.Minute * 1
+	runningLimit time.Duration = time.Hour * 1
 	folderName                 = strings.ReplaceAll(time.Now().Format(time.DateOnly)+"-"+time.Now().Format(time.Kitchen), ":", "_")
 
 	// Hyperparameter
@@ -132,12 +134,10 @@ func parallelFitnessFunction(targetImage image.Image, boxSize int, offSprint [][
 	chunks := len(offSprint) / maxSubprocess
 	ch := make(chan float64, chunks)
 	wg := sync.WaitGroup{}
-
 	for i := 0; i < chunks; i++ {
 		startRow := i * chunks
 		endRow := startRow + chunks
 		wg.Add(1)
-
 		go func(id, startRow, endRow int) {
 			defer wg.Done()
 			mineTotalSum := 0.0
@@ -151,7 +151,6 @@ func parallelFitnessFunction(targetImage image.Image, boxSize int, offSprint [][
 						startY = y * boxSize
 						endY   = y*boxSize + boxSize
 					)
-					// println(fmt.Sprintf("(%d,%d) - (%d,%d)", startX, startY, endX, endY))
 					imgBox := extractVectorBox(targetImage, startX, startY, endX, endY)
 					mineTotalSum += mathstuff.DTW(imgBox, colorPalette[row[x]])
 				}
@@ -159,10 +158,8 @@ func parallelFitnessFunction(targetImage image.Image, boxSize int, offSprint [][
 			ch <- mineTotalSum
 		}(i, startRow, endRow)
 	}
-
 	wg.Wait()
 	close(ch)
-
 	globalSum := 0.0
 	for val := range ch {
 		globalSum += val
@@ -245,7 +242,15 @@ func main() {
 	startTime := time.Now()
 	iterationsCounter := 0
 
+	deltasReport := runningLimit / 10
+	lastReport := time.Now()
 	for time.Since(startTime) < runningLimit {
+		if time.Since(lastReport) > deltasReport {
+			log.Println("Time of computing: ", time.Since(startTime)-runningLimit, "/", runningLimit)
+			log.Println("Remaining computing time:: ", time.Until(startTime.Add(runningLimit)))
+			lastReport = time.Now()
+		}
+
 		var (
 			parentsIndex  = getNParents(4, initPopulationSize)
 			offSprint     = Off(parentsIndex[0], parentsIndex[1:], initPopulation, crossOverProb)
@@ -291,16 +296,37 @@ func main() {
 
 	for i, data := range initPopulation[:5] {
 		dst := DrawOverImage(targetImage, data, boxSize)
-		if err := utils.SaveImageToPNG(fmt.Sprintf("TOP-%d.png", i+1), folderName, dst); err != nil {
+		if err := utils.SaveImageToPNG(fmt.Sprintf("TOP-%d-%d.png", i+1, int(data.Score)), folderName, dst); err != nil {
 			log.Println("Errpr saving the last image", err.Error())
+		}
+
+		overlapped := overLapWinner(targetImage, dst)
+		if err := utils.SaveImageToPNG(fmt.Sprintf("TOP-%d-overlapped.png", i+1), folderName, overlapped); err != nil {
+			log.Println("Errpr saving the overlapped image", err.Error())
 		}
 	}
 
 	utils.SaveImageToPNG("origin.png", folderName, targetImage)
 
-	dst := DrawOverImage(targetImage, initPopulation[0], boxSize)
-	winner := overLapWinner(targetImage, dst)
-	utils.SaveImageToPNG("winner_overlapping.png", folderName, winner)
+	bigger := 0.0
+	index := 0
+	for i := range initPopulation {
+		if initPopulation[i].Score != math.Inf(0) && bigger < initPopulation[i].Score {
+			bigger = initPopulation[i].Score
+			index = i
+		}
+	}
+
+	dst := DrawOverImage(targetImage, initPopulation[index], boxSize)
+	utils.SaveImageToPNG(fmt.Sprintf("worst-%d.png", int(initPopulation[index].Score)), folderName, dst)
+	overlapped := overLapWinner(targetImage, dst)
+	if err := utils.SaveImageToPNG("worst-overlapped.png", folderName, overlapped); err != nil {
+		log.Println("Errpr saving the overlapped image", err.Error())
+	}
+
+	log.Printf("Biger: %.2f, Index: %d, Population without being checked: %d \n", bigger, index, len(initPopulation)-index)
+	log.Println("Done")
+
 }
 
 /*
